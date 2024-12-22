@@ -18,27 +18,37 @@ MONGO_URI = os.getenv("MONGO_URI")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 try:
-    # Connexion à MongoDB avec Railway
-    client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    # Connexion sécurisée à MongoDB sur le réseau privé de Railway
+    client = MongoClient(
+        MONGO_URI,
+        tls=True,
+        tlsCAFile=certifi.where(),  # Vérifie les certificats racines
+        tlsAllowInvalidCertificates=False  # Assure la validation TLS
+    )
     print(client.server_info())  # Vérifie la connexion
-    print("Connexion réussie à MongoDB")
+    print("Connexion réussie à MongoDB via le réseau privé Railway")
 except Exception as e:
     print(f"Erreur de connexion à MongoDB : {e}")
 
 # Accès à la base de données et aux collections
-db = client.WhalesX  # Nom de la base de données
-users_collection = db.botUsers  # Collection des utilisateurs
 try:
+    db = client.WhalesX  # Nom de la base de données
+    users_collection = db.botUsers  # Collection des utilisateurs
     users_collection.create_index("user_id", unique=True)
+    print("Index sur 'user_id' créé ou déjà existant.")
 except Exception as e:
-    print(f"Erreur lors de la création de l'index : {e}")
+    print(f"Erreur lors de l'accès ou de la configuration de la base de données : {e}")
 
 # État pour suivre le dernier token analysé
 LAST_ANALYZED_TOKEN = {}
 
 # Fonction pour vérifier si un utilisateur est enregistré
 def is_user_registered(user_id: int) -> bool:
-    return users_collection.find_one({"user_id": user_id}) is not None
+    try:
+        return users_collection.find_one({"user_id": user_id}) is not None
+    except Exception as e:
+        print(f"Erreur lors de la vérification de l'utilisateur {user_id} : {e}")
+        return False
 
 # Fonction pour ajouter ou mettre à jour un utilisateur dans MongoDB
 def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_earned=0.0):
@@ -52,19 +62,30 @@ def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_ea
     if fees_earned is not None:
         update_data["fees_earned"] = fees_earned
 
-    users_collection.update_one(
-        {"user_id": user_id},  # Condition
-        {"$set": update_data},  # Données à mettre à jour
-        upsert=True  # Crée un document si inexistant
-    )
+    try:
+        users_collection.update_one(
+            {"user_id": user_id},  # Condition
+            {"$set": update_data},  # Données à mettre à jour
+            upsert=True  # Crée un document si inexistant
+        )
+    except Exception as e:
+        print(f"Erreur lors de la mise à jour ou de l'ajout d'un utilisateur : {e}")
 
 # Fonction pour récupérer les données d'un utilisateur
 def get_user(user_id: int):
-    return users_collection.find_one({"user_id": user_id})
+    try:
+        return users_collection.find_one({"user_id": user_id})
+    except Exception as e:
+        print(f"Erreur lors de la récupération de l'utilisateur {user_id} : {e}")
+        return None
 
 # Fonction pour compter les utilisateurs enregistrés
 def count_whitelist_users():
-    return users_collection.count_documents({})
+    try:
+        return users_collection.count_documents({})
+    except Exception as e:
+        print(f"Erreur lors du comptage des utilisateurs : {e}")
+        return 0
 
 # Fonction pour démarrer le bot et enregistrer l'utilisateur
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -82,7 +103,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🐋 *Bienvenue sur Whalesx_tracker!*\n\n",
         parse_mode="Markdown"
     )
-    if get_user(user_id).get("email"):
+    if get_user(user_id) and get_user(user_id).get("email"):
         await update.message.reply_text(
             "Cliquez sur *Démarrer l'analyse* pour entrer un token à analyser.",
             reply_markup=reply_markup,
