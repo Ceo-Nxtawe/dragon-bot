@@ -7,38 +7,36 @@ from Dragon.bundle import check_bundle
 from Dragon.bulkWallet import get_bulk_wallet_stats
 from Dragon.holders import get_top_holders
 from Dragon.traders import get_top_traders
-from pymongo import MongoClient
 import certifi
-import traceback
+from pymongo import MongoClient
 
 # Charger les variables d'environnement
 load_dotenv()
 
-# MongoDB configuration
+# Configuration MongoDB
 MONGO_URI = os.getenv("MONGO_URI")
-client = None  # Déclare le client global MongoDB
+client = None
 
 def connect_to_mongo():
     """
-    Gère la connexion à MongoDB avec des options de tolérance.
+    Connexion sécurisée à MongoDB avec gestion des erreurs et TLS.
     """
     global client
     try:
-        if client is None:
-            client = MongoClient(
-                MONGO_URI,
-                tls=True,
-                tlsCAFile=certifi.where(),
-                serverSelectionTimeoutMS=5000  # Timeout après 5 secondes
-            )
-        # Tester la connexion
-        client.server_info()  # Vérifie la connectivité
-        print("Connexion réussie à MongoDB")
+        client = MongoClient(
+            MONGO_URI,
+            tls=True,
+            tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=5000  # Timeout pour éviter les blocages
+        )
+        # Test de connexion
+        client.server_info()
+        print("Connexion réussie à MongoDB.")
     except Exception as e:
-        print(f"Erreur lors de la connexion à MongoDB : {e}")
-        print(traceback.format_exc())
+        print(f"Erreur de connexion à MongoDB : {e}")
         client = None
 
+# Initialiser la connexion à MongoDB
 connect_to_mongo()
 
 # Accès à la base de données
@@ -57,14 +55,20 @@ LAST_ANALYZED_TOKEN = {}
 
 # Vérifier si un utilisateur est enregistré
 def is_user_registered(user_id: int) -> bool:
+    if not client:
+        return False
     try:
         return users_collection.find_one({"user_id": user_id}) is not None
     except Exception as e:
-        print(f"Erreur lors de la vérification de l'utilisateur : {e}")
+        print(f"Erreur lors de la vérification de l'utilisateur {user_id} : {e}")
         return False
 
 # Ajouter ou mettre à jour un utilisateur
 def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_earned=0.0):
+    if not client:
+        print("MongoDB indisponible. Impossible de mettre à jour l'utilisateur.")
+        return
+
     update_data = {}
     if email is not None:
         update_data["email"] = email
@@ -86,19 +90,13 @@ def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_ea
 
 # Récupérer les données d'un utilisateur
 def get_user(user_id: int):
+    if not client:
+        return None
     try:
         return users_collection.find_one({"user_id": user_id})
     except Exception as e:
         print(f"Erreur lors de la récupération de l'utilisateur {user_id} : {e}")
         return None
-
-# Compter les utilisateurs enregistrés
-def count_whitelist_users():
-    try:
-        return users_collection.count_documents({})
-    except Exception as e:
-        print(f"Erreur lors du comptage des utilisateurs : {e}")
-        return 0
 
 # Fonction pour démarrer le bot et enregistrer l'utilisateur
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -107,7 +105,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     keyboard = [[InlineKeyboardButton("🚀 Démarrer l'analyse", callback_data="start_analysis")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     if not is_user_registered(user_id):
         upsert_user(user_id)
 
@@ -128,19 +126,50 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "✉️ *Pour rejoindre la whitelist, veuillez fournir votre email.*", parse_mode="Markdown"
         )
 
-# Autres fonctionnalités comme `register_email`, `receive_token`, etc., restent similaires.
+# Fonction pour enregistrer l'email de l'utilisateur
+async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id
+    email = update.message.text.strip()
+
+    if not is_user_registered(user_id):
+        await update.message.reply_text("❌ Veuillez d'abord démarrer avec /start.")
+        return
+
+    if "@" in email:
+        position = count_whitelist_users()
+        upsert_user(user_id, email=email, position=position)
+
+        user_data = get_user(user_id)
+        referral_link = escape_markdown(f"https://t.me/WhalesX_bot?start={user_id}")
+        email_escaped = escape_markdown(email)
+
+        await update.message.reply_text(
+            f"✅ Votre email `{email_escaped}` a été enregistré !\n"
+            f"📋 Vous êtes en position #{position} dans la whitelist.\n"
+            f"🔗 Invitez vos amis avec ce lien : {referral_link}",
+            parse_mode="Markdown",
+        )
+
+        keyboard = [[InlineKeyboardButton("🚀 Démarrer l'analyse", callback_data="start_analysis")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "✅ Inscription terminée !\nCliquez sur *Démarrer l'analyse* pour entrer un token à analyser.",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text("❌ Veuillez fournir un email valide.", parse_mode="Markdown")
 
 def main():
     application = Application.builder().token(os.getenv("BOT_TOKEN")).build()
-                                               
+
+    # Handlers pour les commandes et interactions
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.Regex(r".+@.+\..+"), register_email))  # Regex pour l'email
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_token))
-    application.add_handler(CallbackQueryHandler(button_handler))  # Gère les callbacks
 
-    print("Le bot est prêt et connecté à MongoDB...")
+    print("Le bot Whalesx_tracker fonctionne avec MongoDB...")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
-
