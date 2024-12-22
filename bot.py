@@ -13,6 +13,7 @@ from pymongo import MongoClient
 # MongoDB configuration
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 try:
     client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
@@ -333,8 +334,8 @@ async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main():
-    # application = Application.builder().token("7609416122:AAHVlEMtwBGbVrQBffz7UNNw630EiAnoxug").build()
-    application = Application.builder().token("8171737440:AAGTb434bzrTSakyREYxgmyuxEG-N5aNb7c").build()
+    application = Application.builder().token(BOT_TOKEN).build()
+    # application = Application.builder().token("8171737440:AAGTb434bzrTSakyREYxgmyuxEG-N5aNb7c").build()
                                                
     # Handler for the /start command
     application.add_handler(CommandHandler("start", start))
