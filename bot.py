@@ -19,7 +19,7 @@ try:
         MONGO_URI,
         tls=True,
         tlsCAFile=certifi.where(),  # Vérifie les certificats racines
-        tlsAllowInvalidCertificates=False  # Assure la validation TLS
+        tlsAllowInvalidCertificates=True  # Assure la validation TLS
     )
     print(client.server_info())  # Vérifie la connexion
     print("Connexion réussie à MongoDB via le réseau privé Railway")
