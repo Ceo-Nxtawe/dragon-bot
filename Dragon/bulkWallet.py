@@ -24,6 +24,9 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
 
         formatted_results = "💼 *Bulk Wallet Stats*\n\n"
         RISK_FREE_RATE = 0.02  # Exemple de taux sans risque pour le Sharpe Ratio
+        
+        # List to store results with winrate
+        wallet_results = []
 
         # Analyse des wallets
         for wallet in wallets:
@@ -36,23 +39,39 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                 transactions = data["activities"]
 
                 if not transactions:
-                    formatted_results += f"❌ Wallet `{wallet_escaped}` : Aucune transaction trouvée.\n\n"
+                    wallet_results.append({
+                        "wallet": wallet_escaped,
+                        "pnl_realized": 0.0,
+                        "pnl_unrealized": 0.0,
+                        "winrate": 0.0,
+                        "sharpe_ratio": 0.0,
+                        "liquidity": 0.0,
+                    })
                     continue
-                # Filtrer les transactions de moins d'un mois
-                recentTrades = [trade for trade in transactions if trade.get("timestamp", 0) >= ONE_MONTH]
+                
+                # Filter transactions from last month
+                recent_trades = [tx for tx in transactions if tx.get("timestamp", 0) >= ONE_MONTH]
+                if not recent_trades:
+                    wallet_results.append({
+                        "wallet": wallet_escaped,
+                        "pnl_realized": 0.0,
+                        "pnl_unrealized": 0.0,
+                        "winrate": 0.0,
+                        "sharpe_ratio": 0.0,
+                        "liquidity": 0.0,
+                    })
+                    continue
 
-                # On va stocker les montants achetés/vendus par token
+                # To store token data
                 token_data = {}
-                                
-                # Calcul des métriques
-                pnl_realized = 0.0
-                pnl_unrealized = 0.0
-                total_trades = len(recentTrades)
+
+                # Metrics to calculate
+                pnl_realized, pnl_unrealized, liquidity = 0.0, 0.0, 0.0
+                total_trades = len(recent_trades)
                 winning_trades = 0
                 portfolio_returns = []
-                liquidity = 0.0
 
-                for tx in recentTrades:
+                for tx in recent_trades:
                     token_address = tx.get('token_address', 'N/A')
                     token_current = tx.get('token', {})
                     token_current_price = token_current.get('price', 'N/A')
@@ -82,13 +101,9 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                         "price_usd": price_usd,
                         "token_address": token_address
                     })
-                    
-                # Calcul PnL + Winrate
-                total_tokens_traded = 0
-                portfolio_returns = []  # pour calculer la volatilité 
-                
+
+
                 for token_address, info in token_data.items():
-                    total_tokens_traded += 1
                     # print(f"\n{info["sells"]}\n")
                     # print(f"\n{info["buys"]}\n")
                       
@@ -109,14 +124,8 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                         token_return = 0
                         
                     portfolio_returns.append(token_return)  # Add to retunrs list
-                    
                     if token_pnl_realized > 0:
                         winning_trades += 1
-                    
-                if total_tokens_traded > 0:
-                    winrate = (winning_trades / total_tokens_traded) * 100
-                else:
-                    winrate = 0 
 
                 # Calcul des ratios
                 winrate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0.0
@@ -125,19 +134,36 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                     sum((r - mean_return) ** 2 for r in portfolio_returns) / len(portfolio_returns)
                 ) if portfolio_returns else 0.0
                 sharpe_ratio = (mean_return - RISK_FREE_RATE) / volatility if volatility > 0 else 0.0
-
-                # Calcul des 
-                # Formater les résultats pour chaque wallet
-                formatted_results += (
-                    f"🔹 Wallet: `{wallet_escaped}`\n"
-                    f"   📈 PnL Réalisé: {pnl_realized:.2f} USD\n"
-                    f"   💵 PnL Non Réalisé: {pnl_unrealized:.2f} USD\n"
-                    f"   🏆 Winrate: {winrate:.2f}%\n"
-                    f"   📊 Sharpe Ratio: {sharpe_ratio:.2f}\n"
-                    f"   🌊 Liquidity: {liquidity:.2f} USD\n\n"
-                )
+                
+                wallet_results.append({
+                    "wallet": wallet_escaped,
+                    "pnl_realized": pnl_realized,
+                    "pnl_unrealized": pnl_unrealized,
+                    "winrate": winrate,
+                    "sharpe_ratio": sharpe_ratio,
+                    "liquidity": liquidity
+                })
+                
             except Exception as e:
-                formatted_results += f"❌ Erreur pour le wallet `{wallet_escaped}` : {escape_markdown(str(e))}\n\n"
+                wallet_results.append({
+                    "wallet": wallet_escaped,
+                    "error": str(e)
+                })
+
+        wallet_results.sort(key=lambda x: x.get("winrate", 0), reverse=True)
+        
+        for result in wallet_results:
+            if "error" in result:
+                formatted_results += f"❌ Error for wallet `{result['wallet']}`: {escape_markdown(result['error'])}\n\n"
+            else:
+                formatted_results += (
+                    f"🔹 Wallet: `{result['wallet']}`\n"
+                    f"   📈 PnL realized: {result['pnl_realized']:.2f} USD\n"
+                    f"   💵 PnL unrealized: {result['pnl_unrealized']:.2f} USD\n"
+                    f"   🏆 Winrate: {result['winrate']:.2f}%\n"
+                    f"   📊 Sharpe Ratio: {result['sharpe_ratio']:.2f}\n"
+                    f"   🌊 Liquidity: {result['liquidity']:.2f} USD\n\n"
+                )
 
         return formatted_results.strip()
 
