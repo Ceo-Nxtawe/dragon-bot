@@ -10,6 +10,14 @@ PROXY_LIST = [
         "http": "http://brd-customer-hl_961a5843-zone-gmgnscrapper:a4ypx1ve1qcr@brd.superproxy.io:33335",
         "https": "http://brd-customer-hl_961a5843-zone-gmgnscrapper:a4ypx1ve1qcr@brd.superproxy.io:33335"
     },
+    {
+        "http": "http://brd-customer-hl_961a5843-zone-gmgnscrapper2:o5ooq5p70ymc@brd.superproxy.io:33335",
+        "https": "http://brd-customer-hl_961a5843-zone-gmgnscrapper2:o5ooq5p70ymc@brd.superproxy.io:33335"
+    },
+    {
+        "http": "http://brd-customer-hl_961a5843-zone-gmgnscrapper3:99f8kvuffxu8@brd.superproxy.io:33335",
+        "https": "http://brd-customer-hl_961a5843-zone-gmgnscrapper3:99f8kvuffxu8@brd.superproxy.io:33335"
+    }
 ]
 
 proxy_cycle = cycle(PROXY_LIST)
