@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+from dotenv import load_dotenv
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -13,75 +14,93 @@ load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# Gestion MongoDB
+db_available = True
+local_users = {}  # Stockage local en cas d'indisponibilité de MongoDB
+
 try:
     # Connexion sécurisée à MongoDB avec gestion des certificats
     client = MongoClient(
         MONGO_URI,
         tls=True,
         tlsCAFile=certifi.where(),  # Vérifie les certificats racines
-        tlsAllowInvalidCertificates=True  # Assure la validation TLS
+        tlsAllowInvalidCertificates=True  # Désactive la validation TLS
     )
     print(client.server_info())  # Vérifie la connexion
     print("Connexion réussie à MongoDB via le réseau privé Railway")
-except Exception as e:
-    print(f"Erreur de connexion à MongoDB : {e}")
-
-# Accès à la base de données et aux collections
-try:
     db = client.WhalesX  # Nom de la base de données
     users_collection = db.botUsers  # Collection des utilisateurs
     users_collection.create_index("user_id", unique=True)
     print("Index sur 'user_id' créé ou déjà existant.")
 except Exception as e:
-    print(f"Erreur lors de l'accès ou de la configuration de la base de données : {e}")
-
-# État pour suivre le dernier token analysé
-LAST_ANALYZED_TOKEN = {}
+    print(f"Erreur de connexion à MongoDB : {e}")
+    db_available = False  # MongoDB indisponible
 
 # Fonction pour vérifier si un utilisateur est enregistré
 def is_user_registered(user_id: int) -> bool:
-    try:
-        return users_collection.find_one({"user_id": user_id}) is not None
-    except Exception as e:
-        print(f"Erreur lors de la vérification de l'utilisateur {user_id} : {e}")
-        return False
+    if db_available:
+        try:
+            return users_collection.find_one({"user_id": user_id}) is not None
+        except Exception as e:
+            print(f"Erreur lors de la vérification de l'utilisateur {user_id} : {e}")
+            return False
+    else:
+        # Vérification dans les données locales
+        return user_id in local_users
 
-# Fonction pour ajouter ou mettre à jour un utilisateur dans MongoDB
+# Fonction pour ajouter ou mettre à jour un utilisateur
 def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_earned=0.0):
-    update_data = {}
-    if email is not None:
-        update_data["email"] = email
-    if referrals is not None:
-        update_data["referrals"] = referrals
-    if position is not None:
-        update_data["position"] = position
-    if fees_earned is not None:
-        update_data["fees_earned"] = fees_earned
+    if db_available:
+        update_data = {}
+        if email is not None:
+            update_data["email"] = email
+        if referrals is not None:
+            update_data["referrals"] = referrals
+        if position is not None:
+            update_data["position"] = position
+        if fees_earned is not None:
+            update_data["fees_earned"] = fees_earned
 
-    try:
-        users_collection.update_one(
-            {"user_id": user_id},  # Condition
-            {"$set": update_data},  # Données à mettre à jour
-            upsert=True  # Crée un document si inexistant
-        )
-    except Exception as e:
-        print(f"Erreur lors de la mise à jour ou de l'ajout d'un utilisateur : {e}")
+        try:
+            users_collection.update_one(
+                {"user_id": user_id},  # Condition
+                {"$set": update_data},  # Données à mettre à jour
+                upsert=True  # Crée un document si inexistant
+            )
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour ou de l'ajout d'un utilisateur : {e}")
+    else:
+        # Mise à jour dans les données locales
+        local_users[user_id] = {
+            "email": email,
+            "referrals": referrals,
+            "position": position,
+            "fees_earned": fees_earned,
+        }
 
 # Fonction pour récupérer les données d'un utilisateur
 def get_user(user_id: int):
-    try:
-        return users_collection.find_one({"user_id": user_id})
-    except Exception as e:
-        print(f"Erreur lors de la récupération de l'utilisateur {user_id} : {e}")
-        return None
+    if db_available:
+        try:
+            return users_collection.find_one({"user_id": user_id})
+        except Exception as e:
+            print(f"Erreur lors de la récupération de l'utilisateur {user_id} : {e}")
+            return None
+    else:
+        # Récupération depuis les données locales
+        return local_users.get(user_id)
 
 # Fonction pour compter les utilisateurs enregistrés
 def count_whitelist_users():
-    try:
-        return users_collection.count_documents({})
-    except Exception as e:
-        print(f"Erreur lors du comptage des utilisateurs : {e}")
-        return 0
+    if db_available:
+        try:
+            return users_collection.count_documents({})
+        except Exception as e:
+            print(f"Erreur lors du comptage des utilisateurs : {e}")
+            return 0
+    else:
+        # Comptage dans les données locales
+        return len(local_users)
 
 # Fonction pour démarrer le bot et enregistrer l'utilisateur
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -92,7 +111,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if not is_user_registered(user_id):
-        # Ajouter l'utilisateur à la base de données
+        # Ajouter l'utilisateur à la base de données ou aux données locales
         upsert_user(user_id)
 
     await update.message.reply_text(
@@ -168,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
