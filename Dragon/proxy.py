@@ -1,48 +1,52 @@
 import requests
 import urllib3
+from itertools import cycle
 
-# Désactiver les avertissements liés à SSL
+# Unenables SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configuration du proxy Bright Data avec les nouvelles informations
-BRIGHT_DATA_PROXY = {
-    "http": "http://brd-customer-hl_961a5843-zone-gmgnscrapper:a4ypx1ve1qcr@brd.superproxy.io:33335",
-    "https": "http://brd-customer-hl_961a5843-zone-gmgnscrapper:a4ypx1ve1qcr@brd.superproxy.io:33335"
-}
+PROXY_LIST = [
+    {
+        "http": "http://brd-customer-hl_961a5843-zone-gmgnscrapper:a4ypx1ve1qcr@brd.superproxy.io:33335",
+        "https": "http://brd-customer-hl_961a5843-zone-gmgnscrapper:a4ypx1ve1qcr@brd.superproxy.io:33335"
+    },
+]
+
+proxy_cycle = cycle(PROXY_LIST)
 
 def get_data_with_proxy(url: str, headers: dict = None, json_payload: dict = None, timeout: int = 60) -> requests.Response:
     """
-    Effectue une requête HTTP avec un proxy Bright Data et SSL désactivé.
+    Performs an HTTP request with a Bright Data proxy and SSL disabled.
     
     Args:
-        url (str): URL cible de la requête.
-        headers (dict, optional): En-têtes HTTP pour la requête.
-        json_payload (dict, optional): Payload JSON pour les requêtes POST.
-        timeout (int): Timeout de la requête en secondes.
+        url (str): Target URL of the request.
+        headers (dict, optional): HTTP headers for the request.
+        json_payload (dict, optional): JSON payload for POST requests.
+        timeout (int): Request timeout in seconds.
     
     Returns:
-        requests.Response: Réponse de l'API.
+        requests.Response: API response.
     
     Raises:
-        RuntimeError: En cas d'échec de la requête.
+        RuntimeError: In case of request failure.
     """
     try:
-        # Créer une session avec le proxy
+        current_proxy = next(proxy_cycle)
+        
         session = requests.Session()
-        session.proxies.update(BRIGHT_DATA_PROXY)
+        session.proxies.update(current_proxy)
 
         # Effectuer une requête GET ou POST
         if json_payload is not None:
-            # POST avec un payload JSON
+            # POST with JSON payload
             response = session.post(url, headers=headers, json=json_payload, verify=False, timeout=timeout)
         else:
             # GET classique
             response = session.get(url, headers=headers, verify=False, timeout=timeout)
         
-        response.raise_for_status()  # Vérifie les erreurs HTTP
+        response.raise_for_status()  # Vérifies HTTP errors
         return response
     except requests.Timeout:
-        raise RuntimeError(f"Timeout atteint lors de la requête à {url}.")
+        raise RuntimeError(f"Reaching timeout while requesting {url}.")
     except requests.RequestException as e:
-        raise RuntimeError(f"Erreur HTTP lors de la requête à {url} : {str(e)}")
-
+        raise RuntimeError(f"HTTP error while requesting {url}: {str(e)}")
