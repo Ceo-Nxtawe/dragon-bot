@@ -138,7 +138,7 @@ async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         upsert_user(user_id, email=email, position=position)
 
         user_data = get_user(user_id)
-        referral_link = escape_markdown(f"https://t.me/WhalesX_bot?start={user_id}")
+        referral_link = escape_markdown(f"https://t.me/WhalesX_Tracker_bot?start={user_id}")
         email_escaped = escape_markdown(email)
 
         await update.message.reply_text(
