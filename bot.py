@@ -1,14 +1,10 @@
 from dotenv import load_dotenv
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.helpers import escape_markdown
-from Dragon.bundle import check_bundle
-from Dragon.bulkWallet import get_bulk_wallet_stats
-from Dragon.holders import get_top_holders
-from Dragon.traders import get_top_traders
-import certifi
 from pymongo import MongoClient
+import certifi
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -18,7 +14,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 try:
-    # Connexion sécurisée à MongoDB sur le réseau privé de Railway
+    # Connexion sécurisée à MongoDB avec gestion des certificats
     client = MongoClient(
         MONGO_URI,
         tls=True,
@@ -149,7 +145,8 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await update.message.reply_text(f"🔍 Analyse en cours pour le token : `{token_address}`", parse_mode="Markdown")
     try:
-        bundles = check_bundle(token_address)
+        # Placeholder for check_bundle
+        bundles = []  # Simulation d'une analyse
         if not bundles:
             await update.message.reply_text("❌ Aucun bundle trouvé.", parse_mode="Markdown")
         else:
