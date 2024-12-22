@@ -89,8 +89,8 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                 
                 for token_address, info in token_data.items():
                     total_tokens_traded += 1
-                    print(f"\n{info["sells"]}\n")
-                    print(f"\n{info["buys"]}\n")
+                    # print(f"\n{info["sells"]}\n")
+                    # print(f"\n{info["buys"]}\n")
                       
                     token_pnl_realized = info["sells"] - info["buys"]
                     token_pnl_unrealized = info["total_token_amount"] * info["token_current_price"] - info["buys"]
