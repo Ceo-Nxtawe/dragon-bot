@@ -394,7 +394,7 @@ def main():
     Launch the bot in polling mode.
     """
     # Replace with your real bot token
-    bot_token = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+    bot_token = "7609416122:AAHVlEMtwBGbVrQBffz7UNNw630EiAnoxug"
 
     application = Application.builder().token(bot_token).build()
     print("WhalesX_Tracker bot running with a single callback handler...")
