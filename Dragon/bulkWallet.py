@@ -135,14 +135,15 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                 ) if portfolio_returns else 0.0
                 sharpe_ratio = (mean_return - RISK_FREE_RATE) / volatility if volatility > 0 else 0.0
                 
-                wallet_results.append({
-                    "wallet": wallet_escaped,
-                    "pnl_realized": pnl_realized,
-                    "pnl_unrealized": pnl_unrealized,
-                    "winrate": winrate,
-                    "sharpe_ratio": sharpe_ratio,
-                    "liquidity": liquidity
-                })
+                if winrate > 0:
+                    wallet_results.append({
+                        "wallet": wallet_escaped,
+                        "pnl_realized": pnl_realized,
+                        "pnl_unrealized": pnl_unrealized,
+                        "winrate": winrate,
+                        "sharpe_ratio": sharpe_ratio,
+                        "liquidity": liquidity
+                    })
                 
             except Exception as e:
                 wallet_results.append({
