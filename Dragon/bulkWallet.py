@@ -163,7 +163,9 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                     f"   💵 PnL unrealized: {result['pnl_unrealized']:.2f} USD\n"
                     f"   🏆 Winrate: {result['winrate']:.2f}%\n"
                     f"   📊 Sharpe Ratio: {result['sharpe_ratio']:.2f}\n"
-                    f"   🌊 Liquidity: {result['liquidity']:.2f} USD\n\n"
+                    f"   🌊 Liquidity: {result['liquidity']:.2f} USD\n"
+                    f"   🔗 [Cielo](https://app.cielo.finance/profile/{result['wallet']})\n\n"
+                    # https://gmgn.ai/sol/address/{result['wallet']}
                 )
 
         return formatted_results.strip()
