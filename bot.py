@@ -286,7 +286,8 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         try:
             result_text = get_bulk_wallet_stats(wallet_list)
-            await update.message.reply_text(result_text, parse_mode="Markdown")
+            for part in result_text:
+                await update.effective_chat.send_message(part, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(
                 f"❌ *Error analyzing wallets:* {escape_markdown(str(e))}",
