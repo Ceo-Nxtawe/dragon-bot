@@ -18,7 +18,7 @@ def get_top_traders(contract_address: str) -> list:
                 "unrealized_profit": t.get("unrealized_profit", 0),
                 "total_profit": t.get("profit", 0),
             }
-            for t in traders_sorted[:10]
+            for t in traders_sorted[:20]
         ]
     except Exception as e:
         return [{"error": f"Erreur : {str(e)}"}]
