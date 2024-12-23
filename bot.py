@@ -402,7 +402,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 holders_text += (
                     f"{i}️⃣ Wallet: `{wallet}`\n"
                     f"   💰 Amount: {amount:.4f} Spl\n"
-                    f"   🎯 Owned %: {percentage:.2f}%\n\n"
+                    f"   🎯 Owned %: {percentage:.2f}%\n"
+                    f"   🔗 [Cielo](https://app.cielo.finance/profile/{wallet})\n\n"
+                    # https://gmgn.ai/sol/address/{wallet}
                 )
             await update.effective_chat.send_message(holders_text, parse_mode="Markdown")
             
@@ -424,7 +426,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     f"{i}️⃣ Wallet: `{wallet}`\n"
                     f"   💰 Realized Profit: {realized_profit:.2f} USD\n"
                     f"   🔄 Unrealized Profit: {unrealized_profit:.2f} USD\n"
-                    f"   📊 Total PnL: {total_profit:.2f} USD\n\n"
+                    f"   📊 Total PnL: {total_profit:.2f} USD\n"
+                    f"   🔗 [Cielo](https://app.cielo.finance/profile/{wallet})\n\n"
+                    # https://gmgn.ai/sol/address/{wallet}
                 )
             await update.effective_chat.send_message(traders_text, parse_mode="Markdown")
             
