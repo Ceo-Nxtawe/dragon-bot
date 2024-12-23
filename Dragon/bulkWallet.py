@@ -6,6 +6,36 @@ from telegram.helpers import escape_markdown
 HEADERS = {'referer': 'https://gmgn.ai/?chain=sol'}
 # Timestamp il y a 1 mois (31 jours * 24h * 3600s)
 ONE_MONTH = int(time.time()) - (31 * 24 * 3600)
+TELEGRAM_MESSAGE_LIMIT = 4096  # Limite de caractères pour un message Telegram
+
+
+def split_message(message: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list:
+    """
+    Divise un message en parties plus petites pour respecter la limite de caractères de Telegram.
+    
+    Args:
+        message (str): Message à diviser.
+        limit (int): Limite maximale de caractères pour chaque partie.
+    
+    Returns:
+        list: Liste des sous-messages.
+    """
+    lines = message.split("\n")
+    parts = []
+    current_part = ""
+
+    for line in lines:
+        if len(current_part) + len(line) + 1 > limit:
+            parts.append(current_part)
+            current_part = line
+        else:
+            current_part += "\n" + line if current_part else line
+
+    if current_part:
+        parts.append(current_part)
+    
+    return parts
+
 
 def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
     """
@@ -168,7 +198,7 @@ def get_bulk_wallet_stats(wallets: list, token_address: str = None) -> str:
                     # https://gmgn.ai/sol/address/{result['wallet']}
                 )
 
-        return formatted_results.strip()
+        return split_message(formatted_results.strip())
 
     except Exception as e:
         return f"❌ *Erreur lors de l'analyse des wallets :* {escape_markdown(str(e))}"
