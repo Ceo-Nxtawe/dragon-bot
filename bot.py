@@ -112,10 +112,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # If user already has an email, show analysis button
     user_data = get_user(user_id)
     if user_data and user_data.get("email"):
-        keyboard = [[InlineKeyboardButton("🚀 Start analysis", callback_data="start_analysis")]]
+        keyboard = [
+            [InlineKeyboardButton("🚀 Analyze a token", callback_data="start_analysis")],
+            [InlineKeyboardButton("💼 Analyze a batch of wallets", callback_data="start_batch_wallets")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "Click *Start analysis* to enter a token address.",
+            "Choose an option:\n"
+            "🔹 Click *Analyze a token* to enter a token address.\n"
+            "🔹 Click *Analyze a batch of wallets* to upload wallet addresses.",
             parse_mode="Markdown",
             reply_markup=reply_markup
         )
@@ -217,57 +222,80 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     When user sends a token address, do bundle analysis + pre-fetch holders/traders in the background.
     """
     # Only proceed if user clicked "Start Analysis" first
-    if not context.user_data.get("ready_for_analysis"):
-        return
+    if context.user_data.get("ready_for_analysis"):
 
-    user_input = update.message.text.strip()
-    if not user_input:
-        await update.message.reply_text("❌ *No valid token address provided.*", parse_mode="Markdown")
-        return
+        user_input = update.message.text.strip()
+        if not user_input:
+            await update.message.reply_text("❌ *No valid token address provided.*", parse_mode="Markdown")
+            return
 
-    chat_id = update.effective_chat.id
-    LAST_ANALYZED_TOKEN[chat_id] = user_input
+        chat_id = update.effective_chat.id
+        LAST_ANALYZED_TOKEN[chat_id] = user_input
 
-    # 1) Bundle analysis
-    await update.message.reply_text(
-        f"🔍 *Analyzing token:* `{escape_markdown(user_input)}`",
-        parse_mode="Markdown"
-    )
-    try:
-        bundles = check_bundle(user_input)
-        if not bundles:
-            await update.message.reply_text("❌ No bundle found for this contract.", parse_mode="Markdown")
-        else:
-            response_text = "✅ *Bundle Analysis Results*:\n\n"
-            for i, (tx_hash, quote_amount) in enumerate(bundles, start=1):
-                tx_hash = escape_markdown(tx_hash or "N/A")
-                quote_amount = quote_amount or 0.0
-                response_text += f"{i}️⃣ Transaction: `{tx_hash}`\n   Amount: {quote_amount:.4f} SOL\n\n"
-            response_text += f"📊 *Total Transactions Analyzed*: {len(bundles)}"
-            await update.message.reply_text(response_text, parse_mode="Markdown")
-    except Exception as e:
+        # 1) Bundle analysis
         await update.message.reply_text(
-            f"❌ *Error (bundle):* {escape_markdown(str(e))}",
+            f"🔍 *Analyzing token:* `{escape_markdown(user_input)}`",
             parse_mode="Markdown"
         )
+        try:
+            bundles = check_bundle(user_input)
+            if not bundles:
+                await update.message.reply_text("❌ No bundle found for this contract.", parse_mode="Markdown")
+            else:
+                response_text = "✅ *Bundle Analysis Results*:\n\n"
+                for i, (tx_hash, quote_amount) in enumerate(bundles, start=1):
+                    tx_hash = escape_markdown(tx_hash or "N/A")
+                    quote_amount = quote_amount or 0.0
+                    response_text += f"{i}️⃣ Transaction: `{tx_hash}`\n   Amount: {quote_amount:.4f} SOL\n\n"
+                response_text += f"📊 *Total Transactions Analyzed*: {len(bundles)}"
+                await update.message.reply_text(response_text, parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ *Error (bundle):* {escape_markdown(str(e))}",
+                parse_mode="Markdown"
+            )
 
-    # 2) Pre-fetch top holders/traders silently
-    try:
-        holders = get_top_holders(user_input)
-        traders = get_top_traders(user_input)
-        context.user_data["top_holders"] = holders
-        context.user_data["top_traders"] = traders
-    except Exception as e:
-        context.user_data["top_holders"] = []
-        context.user_data["top_traders"] = []
-        print(f"[Warn] Could not fetch holders/traders: {e}")
+        # 2) Pre-fetch top holders/traders silently
+        try:
+            holders = get_top_holders(user_input)
+            traders = get_top_traders(user_input)
+            context.user_data["top_holders"] = holders
+            context.user_data["top_traders"] = traders
+        except Exception as e:
+            context.user_data["top_holders"] = []
+            context.user_data["top_traders"] = []
+            print(f"[Warn] Could not fetch holders/traders: {e}")
 
-    # 3) Show final menu
-    await send_menu(update)
+        # 3) Show final menu
+        await send_menu(update)
+        
+    elif context.user_data.get("ready_for_batch_wallets"):
+        wallets = update.message.text.strip()
+        if not wallets:
+            await update.message.reply_text("❌ *No wallets provided.*", parse_mode="Markdown")
+            return
+
+        wallet_list = [w.strip() for w in wallets.split(",") if w.strip()]
+        if not wallet_list:
+            await update.message.reply_text("❌ *Invalid wallet list.*", parse_mode="Markdown")
+            return
+
+        await update.message.reply_text(
+            f"💼 *Analyzing {len(wallet_list)} wallets...*\nThis may take some time.",
+            parse_mode="Markdown"
+        )
+        try:
+            result_text = get_bulk_wallet_stats(wallet_list)
+            await update.message.reply_text(result_text, parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ *Error analyzing wallets:* {escape_markdown(str(e))}",
+                parse_mode="Markdown"
+            )
+        await send_menu(update)
 
 
 # ========== Send menu ==========
-
 async def send_menu(update: Update) -> None:
     """
     Display the interactive menu (Bulk Wallet, Top Holders, etc.).
@@ -276,7 +304,8 @@ async def send_menu(update: Update) -> None:
         [InlineKeyboardButton("📊 Bulk Wallet", callback_data="bulkwallet")],
         [InlineKeyboardButton("🏆 Top Holders", callback_data="topholders")],
         [InlineKeyboardButton("📈 Top Traders", callback_data="toptraders")],
-        [InlineKeyboardButton("🚀 Analyze another token", callback_data="start_analysis")]
+        [InlineKeyboardButton("🚀 Analyze another token", callback_data="start_analysis")],
+        [InlineKeyboardButton("💼 Analyze a batch of wallets", callback_data="start_batch_wallets")]
     ]
     if update.message:
         # If the update is a regular message
@@ -295,7 +324,6 @@ async def send_menu(update: Update) -> None:
 
 
 # ========== Single callback handler ==========
-
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handles all callback queries: start_analysis, bulkwallet, topholders, toptraders.
@@ -315,6 +343,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "📝 *Please enter the token address (contract) you want to analyze:*",
             parse_mode="Markdown"
         )
+        return
+    
+    # If user clicks "start_batch_wallets"
+    if action == "start_batch_wallets":
+        # Prepare for bulk wallet analysis
+        await query.edit_message_text(
+            "💼 *Batch Wallet Analysis*: Please upload or enter wallet addresses separated by commas.",
+            parse_mode="Markdown"
+        )
+        context.user_data["ready_for_batch_wallets"] = True
         return
 
     # If no token analyzed yet
@@ -400,8 +438,8 @@ def main():
     Launch the bot in polling mode.
     """
     # Replace with your real bot token
-    bot_token = "7609416122:AAHVlEMtwBGbVrQBffz7UNNw630EiAnoxug"
-    # bot_token = "8171737440:AAGTb434bzrTSakyREYxgmyuxEG-N5aNb7c"
+    # bot_token = "7609416122:AAHVlEMtwBGbVrQBffz7UNNw630EiAnoxug"
+    bot_token = "8171737440:AAGTb434bzrTSakyREYxgmyuxEG-N5aNb7c"
     
     application = Application.builder().token(bot_token).build()
     print("WhalesX_Tracker bot running with a single callback handler...")
