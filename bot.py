@@ -379,7 +379,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 parse_mode="Markdown"
             )
             result_text = get_bulk_wallet_stats(wallets, token_address=token_address)
-            await update.effective_chat.send_message(result_text, parse_mode="Markdown")
+            for part in result_text:
+                await update.effective_chat.send_message(part, parse_mode="Markdown")
         except Exception as e:
             await update.effective_chat.send_message(
                 f"❌ *Bulk Wallet Error:* {escape_markdown(str(e))}",
