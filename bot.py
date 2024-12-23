@@ -1,19 +1,27 @@
+# bot.py (English version, single callback handler)
+
 from dotenv import load_dotenv
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+import socket
+import certifi
+import time
+
+from telegram import ( Update, InlineKeyboardButton, InlineKeyboardMarkup)
+from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes)
 from telegram.helpers import escape_markdown
+
+# == Import your Dragon modules ==
 from Dragon.bundle import check_bundle
 from Dragon.bulkWallet import get_bulk_wallet_stats
 from Dragon.holders import get_top_holders
 from Dragon.traders import get_top_traders
-import certifi
+
+# == MongoDB ==
 from pymongo import MongoClient
 
-# MongoDB configuration
+# ========== Load environment variables ==========
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
-
 
 # ========== DNS Test (optional) & Mongo connection helpers ==========
 def test_dns_resolution(hostname="mongodb.railway.internal"):
@@ -55,11 +63,10 @@ except Exception as e:
 # ========== Global state ==========
 LAST_ANALYZED_TOKEN = {}  # Remember the last token per chat
 
-# Function to check if a user is registered
+# ========== Database user helpers ==========
 def is_user_registered(user_id: int) -> bool:
     return users_collection.find_one({"user_id": user_id}) is not None
 
-# Function to add or update a user in MongoDB
 def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_earned=0.0):
     update_data = {}
     if email is not None:
@@ -72,39 +79,36 @@ def upsert_user(user_id: int, email=None, referrals=None, position=None, fees_ea
         update_data["fees_earned"] = fees_earned
 
     users_collection.update_one(
-        {"user_id": user_id},  # Condition
-        {"$set": update_data},  # Data to update
-        upsert=True  # Creates a new document if it doesn't exist
+        {"user_id": user_id},
+        {"$set": update_data},
+        upsert=True
     )
 
-# Function to get a user
 def get_user(user_id: int):
     return users_collection.find_one({"user_id": user_id})
 
-# Function to count the number of users in the whitelist
 def count_whitelist_users():
     return users_collection.count_documents({})
 
 
-# Function to welcome the user and start the registration process
+# ========== Command handlers ==========
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     /start : Greet user and request email if needed.
     """
     user_id = update.effective_user.id
 
-    keyboard = [[InlineKeyboardButton("🚀 Démarrer l'analyse", callback_data="start_analysis")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    # Register user if needed
     if not is_user_registered(user_id):
-        # Add the user to the database
         upsert_user(user_id)
 
+    # Show greeting
     await update.message.reply_text(
         "🐋 *Welcome to WhalesX_Tracker!*\n\n",
         parse_mode="Markdown"
     )
-    
+
     # If user already has an email, show analysis button
     user_data = get_user(user_id)
     if user_data and user_data.get("email"):
@@ -123,7 +127,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
-# Function to register the email and complete the registration
 async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Register the user's email.
@@ -135,23 +138,22 @@ async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("❌ Please /start first.")
         return
 
-    # Simple email validation
+    # Minimal email check
     if "@" in email:
         position = count_whitelist_users()
         upsert_user(user_id, email=email, position=position)
 
-        user_data = get_user(user_id)
-        referral_link = escape_markdown(f"https://t.me/WhalesX_bot?start={user_id}")
+        referral_link = escape_markdown(f"https://t.me/WhalesX_Tracker_bot?start={user_id}")
         email_escaped = escape_markdown(email)
 
         await update.message.reply_text(
-            f"✅ Your email {email_escaped} has been registered!\n"
+            f"✅ Your email `{email_escaped}` has been registered!\n"
             f"📋 You are at position #{position} in the whitelist.\n"
             f"🔗 Invite friends with this link: {referral_link}",
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
-        # Once registered, offer the main menu
+        # Prompt to analyze a token
         keyboard = [[InlineKeyboardButton("🚀 Start analysis", callback_data="start_analysis")]]
         await update.message.reply_text(
             "✅ Registration complete!\nClick *Start analysis* to enter a token address.",
@@ -159,40 +161,57 @@ async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     else:
-        await update.message.reply_text("❌ Veuillez fournir un email valide.", parse_mode="Markdown")
+        await update.message.reply_text("❌ Please provide a valid email.", parse_mode="Markdown")
 
 
-# Handler for the "Start Analysis" button
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    # Définir que l'utilisateur est prêt pour l'analyse
-    context.user_data["ready_for_analysis"] = True
-    
-    await query.edit_message_text(
-        "📝 *Please enter the token address (contract) you want to analyse:*",
-        parse_mode="Markdown"
-    )
-
-
-# Interactive menu at the end of each command
-async def send_menu(update: Update) -> None:
+async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Display the interactive menu (Bulk Wallet, Top Holders, etc.).
+    /referral: e.g. /referral 12345
     """
-    keyboard = [
-        [InlineKeyboardButton("📊 Bulk Wallet", callback_data="bulkwallet")],
-        [InlineKeyboardButton("🏆 Top Holders", callback_data="topholders")],
-        [InlineKeyboardButton("📈 Top Traders", callback_data="toptraders")],
-        [InlineKeyboardButton("🚀 Analyze another token", callback_data="start_analysis")]
-    ]
-    await update.message.reply_text(
-        "❓ *What would you like to do next?*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    user_id = update.effective_user.id
+    args = context.args
+    if args and args[0].isdigit():
+        referrer_id = int(args[0])
+        if referrer_id != user_id:
+            referrer_data = get_user(referrer_id)
+            if referrer_data:
+                user_data = get_user(user_id)
+                if user_data:
+                    referrals = referrer_data.get("referrals", [])
+                    if user_id not in referrals:
+                        referrals.append(user_id)
+                        upsert_user(referrer_id, referrals=referrals)
+                        fees_earned = referrer_data.get("fees_earned", 0.0) + 1.0
+                        upsert_user(referrer_id, fees_earned=fees_earned)
+                        await update.message.reply_text(
+                            f"You have been referred by {referrer_data.get('email', 'Unknown user')}!"
+                        )
+                        return
+    await update.message.reply_text("Invalid or already-used referral link.")
 
-# Reception and analysis of the token
+
+async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /status: Show whitelist position, referrals, fees, etc.
+    """
+    user_id = update.effective_user.id
+    user_data = get_user(user_id)
+    if user_data:
+        position = user_data.get("position", "Unranked")
+        referrals = len(user_data.get("referrals", []))
+        fees = user_data.get("fees_earned", 0.0)
+
+        await update.message.reply_text(
+            f"Whitelist position: #{position}\n"
+            f"Number of referrals: {referrals}\n"
+            f"Accumulated fees: {fees}"
+        )
+    else:
+        await update.message.reply_text("Please /start first.")
+
+
+# ========== Receiving a token address (text) ==========
+
 async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     When user sends a token address, do bundle analysis + pre-fetch holders/traders in the background.
@@ -246,7 +265,37 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # 3) Show final menu
     await send_menu(update)
 
-# Callback to handle automatic analysis with the current token
+
+# ========== Send menu ==========
+
+async def send_menu(update: Update) -> None:
+    """
+    Display the interactive menu (Bulk Wallet, Top Holders, etc.).
+    """
+    keyboard = [
+        [InlineKeyboardButton("📊 Bulk Wallet", callback_data="bulkwallet")],
+        [InlineKeyboardButton("🏆 Top Holders", callback_data="topholders")],
+        [InlineKeyboardButton("📈 Top Traders", callback_data="toptraders")],
+        [InlineKeyboardButton("🚀 Analyze another token", callback_data="start_analysis")]
+    ]
+    if update.message:
+        # If the update is a regular message
+        await update.message.reply_text(
+            "❓ *What would you like to do next?*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    elif update.callback_query:
+        # If the update is a callback query
+        await update.callback_query.message.reply_text(
+            "❓ *What would you like to do next?*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+# ========== Single callback handler ==========
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handles all callback queries: start_analysis, bulkwallet, topholders, toptraders.
@@ -255,10 +304,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
     action = query.data
 
-    # Get the last analyzed token
     chat_id = update.effective_chat.id
-    token_address = LAST_ANALYZED_TOKEN.get(chat_id)
-    
+    token_address = LAST_ANALYZED_TOKEN.get(chat_id, None)
+
+    # If user clicks "start_analysis"
     if action == "start_analysis":
         # Mark user as ready to analyze
         context.user_data["ready_for_analysis"] = True
@@ -267,17 +316,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             parse_mode="Markdown"
         )
         return
-    
+
+    # If no token analyzed yet
     if not token_address:
         await query.edit_message_text(
-            "❌ Aucun token analysé récemment. Veuillez entrer une adresse pour commencer l'analyse.",
+            "❌ No recent token analyzed. Please enter a token address first.",
             parse_mode="Markdown"
         )
         return
 
+    # Handle other actions
     if action == "bulkwallet":
         await query.edit_message_text("💼 *Bulk Wallet*: analyzing wallets...", parse_mode="Markdown")
-
         try:
             holders = context.user_data.get("top_holders", [])
             traders = context.user_data.get("top_traders", [])
@@ -290,14 +340,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 "📊 Wallet analysis has started. This may take some time depending on the number of wallets to analyse. Please wait...",
                 parse_mode="Markdown"
             )
-            bulk_stats = get_bulk_wallet_stats(wallets, token_address=token_address)
-            await update.effective_chat.send_message(bulk_stats, parse_mode="Markdown")
-
+            result_text = get_bulk_wallet_stats(wallets, token_address=token_address)
+            await update.effective_chat.send_message(result_text, parse_mode="Markdown")
         except Exception as e:
             await update.effective_chat.send_message(
                 f"❌ *Bulk Wallet Error:* {escape_markdown(str(e))}",
                 parse_mode="Markdown"
             )
+        await send_menu(update)
 
     elif action == "topholders":
         await query.edit_message_text("🏆 *Top Holders*: loading...", parse_mode="Markdown")
@@ -305,109 +355,72 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not holders:
             await update.effective_chat.send_message("❌ No top holders data found.", parse_mode="Markdown")
             return
-
-        holders_text = "🏆 *Top Holders Analysis*:\n\n"
-        for idx, holder in enumerate(holders, start=1):
-            wallet = escape_markdown(holder.get('wallet', 'N/A'))
-            amount = holder.get('amount', 0)
-            percentage = holder.get('percentage', 0)
+        else:          
+            holders_text = "🏆 *Top Holders Analysis*:\n\n"
+            for i, holder in enumerate(holders, start=1):
+                wallet = escape_markdown(holder.get('wallet', 'N/A'))
+                amount = holder.get('amount', 0.0)
+                percentage = holder.get('percentage', 0.0)
+                holders_text += (
+                    f"{i}️⃣ Wallet: `{wallet}`\n"
+                    f"   💰 Amount: {amount:.4f} Spl\n"
+                    f"   🎯 Owned %: {percentage:.2f}%\n\n"
+                )
+            await update.effective_chat.send_message(holders_text, parse_mode="Markdown")
             
-            holders_text += (
-                f"{idx}️⃣ Wallet: `{wallet}`\n"
-                f"   💰 Amount: {amount:.4f} Spl\n"
-                f"   🎯 Owned %: {percentage:.2f}%\n\n"
-            )
-        await update.effective_chat.send_message(holders_text, parse_mode="Markdown")
+        await send_menu(update)
 
     elif action == "toptraders":
         await query.edit_message_text("📈 *Top Traders*: loading...", parse_mode="Markdown")
         traders = context.user_data.get("top_traders", [])
         if not traders:
             await update.effective_chat.send_message("❌ No top traders data found.", parse_mode="Markdown")
-            return
-        
-        traders_text = "📈 *Top Traders Analysis*:\n\n"
-        for idx, trader in enumerate(traders, start=1):            
-            wallet = escape_markdown(trader.get('wallet', 'N/A'))
-            realized_profit = trader.get('realized_profit', 0) or 0.0
-            unrealized_profit = trader.get('unrealized_profit', 0) or 0.0
-            total_profit = trader.get('total_profit', 0) or 0.0
+        else : 
+            traders_text = "📈 *Top Traders Analysis*:\n\n"
+            for i, trader in enumerate(traders, start=1):
+                wallet = escape_markdown(trader.get('wallet', 'N/A'))
+                realized_profit = trader.get('realized_profit', 0.0)
+                unrealized_profit = trader.get('unrealized_profit', 0.0)
+                total_profit = trader.get('total_profit', 0.0)
+                traders_text += (
+                    f"{i}️⃣ Wallet: `{wallet}`\n"
+                    f"   💰 Realized Profit: {realized_profit:.2f} USD\n"
+                    f"   🔄 Unrealized Profit: {unrealized_profit:.2f} USD\n"
+                    f"   📊 Total PnL: {total_profit:.2f} USD\n\n"
+                )
+            await update.effective_chat.send_message(traders_text, parse_mode="Markdown")
             
-            traders_text += (
-                f"{idx}️⃣ Wallet: [`{wallet}`]\n"
-                f"   💰 Realized Profit: {realized_profit:.2f} USD\n"
-                f"   🔄 Unrealized Profit: {unrealized_profit:.2f} USD\n"
-                f"   📊 Total PnL (unrealized + realized): {total_profit:.2f} USD\n\n"
-            )
-        await update.effective_chat.send_message(traders_text, parse_mode="Markdown")
+        await send_menu(update)
 
 
-# Command to handle referral links
-async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /referral: e.g. /referral 12345
-    """
-    user_id = update.effective_user.id
-    args = context.args
-    if args and args[0].isdigit():
-        referrer_id = int(args[0])
-        if referrer_id != user_id:
-            referrer_data = get_user(referrer_id)
-            if referrer_data:
-                user_data = get_user(user_id)
-                if user_data:
-                    referrals = referrer_data.get("referrals", [])
-                    if user_id not in referrals:
-                        referrals.append(user_id)
-                        upsert_user(referrer_id, referrals=referrals)
-                        fees_earned = referrer_data.get("fees_earned", 0.0) + 1.0
-                        upsert_user(referrer_id, fees_earned=fees_earned)
-                        await update.message.reply_text(
-                            f"You have been referred by {referrer_data.get('email', 'Unknown user')}!"
-                        )
-                        return
-    await update.message.reply_text("Invalid or already-used referral link.")
-    
-# Command to check the user's position and earnings
-async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /status: Show whitelist position, referrals, fees, etc.
-    """
-    user_id = update.effective_user.id
-    user_data = get_user(user_id)
-    if user_data:
-        position = user_data.get("position", "Unranked")
-        referrals = len(user_data.get("referrals", []))
-        fees = user_data.get("fees_earned", 0.0)
-
-        await update.message.reply_text(
-            f"Whitelist position: #{position}\n"
-            f"Number of referrals: {referrals}\n"
-            f"Accumulated fees: {fees}"
-        )
-    else:
-        await update.message.reply_text("Please /start first.")
-
+# ========== Main entry point ==========
 
 def main():
-    bot_token = "7609416122:AAHVlEMtwBGbVrQBffz7UNNw630EiAnoxug"
-    # bot_token = "8171737440:AAGTb434bzrTSakyREYxgmyuxEG-N5aNb7"
+    """
+    Launch the bot in polling mode.
+    """
+    # Replace with your real bot token
+    # bot_token = "7609416122:AAHVlEMtwBGbVrQBffz7UNNw630EiAnoxug"
+    bot_token = "8171737440:AAGTb434bzrTSakyREYxgmyuxEG-N5aNb7c"
+    
     application = Application.builder().token(bot_token).build()
-                                              
-    # Handler for the /start command
+    print("WhalesX_Tracker bot running with a single callback handler...")
+
+    # Register command handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.Regex(r".+@.+\..+"), register_email))  # Regex pour l'email
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_token))
     application.add_handler(CommandHandler("status", my_status))
     application.add_handler(CommandHandler("referral", referral))
-    application.add_handler(CallbackQueryHandler(button_handler))  # Gère les callbacks
 
+    # Register email via a simple regex
+    application.add_handler(MessageHandler(filters.Regex(r".+@.+\..+"), register_email))
 
-    # Handlers for the interactions
-    application.add_handler(CallbackQueryHandler(callback_handler))  # Gère tous les callbacks
+    # If user sends a text not recognized as command, assume it's a token address
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_token))
 
-    # Launch the bot
-    print("Le bot Whalesx_tracker fonctionne avec menu interactif et analyse automatique du token...")
+    # Single callback handler for all query.data
+    application.add_handler(CallbackQueryHandler(callback_handler))
+
+    # Start polling
     application.run_polling()
 
 if __name__ == "__main__":
